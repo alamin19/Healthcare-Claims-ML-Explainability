@@ -1,0 +1,100 @@
+## Step 1: Load Data & Preprocessing
+
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score
+
+# Load sample healthcare claims dataset
+data = pd.read_csv("healthcare_claims.csv")
+
+# Selecting features and target variable
+features = ['age', 'num_procedures', 'num_medications', 'lab_procedures', 'length_of_stay']
+target = 'high_cost'  # Binary target (1 = high cost, 0 = low cost)
+
+X = data[features]
+y = data[target]
+
+# Splitting the dataset
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Train a RandomForest Model
+model = RandomForestClassifier(n_estimators=100, random_state=42)
+model.fit(X_train, y_train)
+
+# Make predictions
+y_pred = model.predict(X_test)
+print("Model Accuracy:", accuracy_score(y_test, y_pred))
+
+
+## Step 2: SHAP - Model Explainability
+
+import shap
+
+explainer = shap.Explainer(model, X_train)
+shap_values = explainer(X_test)
+
+# Summary plot - global feature importance
+shap.summary_plot(shap_values, X_test)
+
+
+## Step 3: LIME - Explain Individual Predictions
+
+from lime.lime_tabular import LimeTabularExplainer
+
+explainer = LimeTabularExplainer(
+    training_data=X_train.values,
+    feature_names=features,
+    class_names=['Low Cost', 'High Cost'],
+    mode='classification'
+)
+
+# Explain one prediction
+i = 10  # Pick a random patient
+exp = explainer.explain_instance(X_test.iloc[i].values, model.predict_proba)
+exp.show_in_notebook()
+
+
+## Step 4: SQL Analysis - Claims Billing Trends
+
+# SQL Query for Identifying Top Providers
+
+query = """
+WITH ProviderStats AS (
+    SELECT 
+        provider_id,
+        SUM(claim_amount) AS total_claims,
+        AVG(claim_amount) AS avg_claim_amount,
+        COUNT(claim_id) AS claim_count
+    FROM claims_data
+    GROUP BY provider_id
+)
+SELECT 
+    provider_id,
+    total_claims,
+    avg_claim_amount,
+    claim_count
+FROM ProviderStats
+ORDER BY total_claims DESC
+LIMIT 3;
+"""
+
+print("Execute the above SQL in your claims database to analyze top providers.")
+
+
+## Step 5: Deploy Model via Flask API
+
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+@app.route('/predict', methods=['POST'])
+def predict():
+    data = request.get_json()
+    input_features = np.array([data[feature] for feature in features]).reshape(1, -1)
+    prediction = model.predict(input_features)
+    return jsonify({'high_cost_prediction': int(prediction[0])})
+
+if __name__ == '__main__':
+    app.run(debug=True)
